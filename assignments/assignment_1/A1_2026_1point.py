@@ -177,39 +177,54 @@ def load_targets(target_dir: Path = TARGET_DIR) -> list[nx.DiGraph]:
 #
 # ============================================================================ #
 
-# NDE settings
-GENOTYPE_SIZE: int = 64  # length of each of the three NDE gene vectors
+# # NDE settings
+# GENOTYPE_SIZE: int = 64  # length of each of the three NDE gene vectors
 
 
-# Constructed ONCE, at import time, and reused for every decode call below and
-# in your own EA. See the "IMPORTANT" note on "nde" in THE GENOTYPE CONTRACT
-# above: rebuilding this per individual silently breaks the genotype -> body
-# mapping, because its internal network randomises on construction.
-_NDE = NeuralDevelopmentalEncoding(
-    number_of_modules=NUM_OF_MODULES,
-    genotype_size=GENOTYPE_SIZE,
-)
+# # Constructed ONCE, at import time, and reused for every decode call below and
+# # in your own EA. See the "IMPORTANT" note on "nde" in THE GENOTYPE CONTRACT
+# # above: rebuilding this per individual silently breaks the genotype -> body
+# # mapping, because its internal network randomises on construction.
+# _NDE = NeuralDevelopmentalEncoding(
+#     number_of_modules=NUM_OF_MODULES,
+#     genotype_size=GENOTYPE_SIZE,
+# )
 
 
-def random_nde_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
-    """Sample a random NDE genotype and decode it into a body graph.
+# def random_nde_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
+#     """Sample a random NDE genotype and decode it into a body graph.
 
-    THIS IS THE FUNCTION YOUR EA REPLACES. The three vectors below are the
-    genotype: that is what you mutate, recombine and select on. Note this
-    function does NOT construct its own `NeuralDevelopmentalEncoding` - it
-    reuses the module-level `_NDE` instance. Do the same in your EA.
+#     THIS IS THE FUNCTION YOUR EA REPLACES. The three vectors below are the
+#     genotype: that is what you mutate, recombine and select on. Note this
+#     function does NOT construct its own `NeuralDevelopmentalEncoding` - it
+#     reuses the module-level `_NDE` instance. Do the same in your EA.
 
-    `num_modules` must match the value `_NDE` was built with (NUM_OF_MODULES).
-    """
-    genotype = [
-        RNG.uniform(-1.0, 1.0, GENOTYPE_SIZE).astype(np.float32)  # module types
-        for _ in range(3)  # types, connections, rotations
-    ]
+#     `num_modules` must match the value `_NDE` was built with (NUM_OF_MODULES).
+#     """
+#     genotype = [
+#         RNG.uniform(-1.0, 1.0, GENOTYPE_SIZE).astype(np.float32)  # module types
+#         for _ in range(3)  # types, connections, rotations
+#     ]
 
-    type_p, conn_p, rot_p = _NDE.forward(genotype)
+#     type_p, conn_p, rot_p = _NDE.forward(genotype)
 
-    decoder = HighProbabilityDecoder(num_modules)
-    return decoder.probability_matrices_to_graph(type_p, conn_p, rot_p)
+#     decoder = HighProbabilityDecoder(num_modules)
+#     return decoder.probability_matrices_to_graph(type_p, conn_p, rot_p)
+
+
+
+
+
+
+# ----------------------------------INDIVIDUAL & POPULATION --------------------
+#GENERATE RANDOM INDIVIDUALS AND PUT THEM INTO A POPULATION LIST --> use ariel.ec individual class
+    #random tree, give size of body, create randomly and then put in population class
+###Function below here, our EA replaces it!!! We have to do something here
+#Random individual to create --> below makes graph that is not necessary.
+
+#Population --> call on to the function.
+
+#LOOK AT WHETHER TO USE FUNCTIONS BELOW --> how can we use it
 
 
 def random_tree_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
@@ -229,10 +244,35 @@ def random_body(
 ) -> nx.DiGraph:
     """Sample one random body using the chosen encoding."""
     match genotype:
-        case "nde":
-            return random_nde_body(num_modules)
+        # case "nde":
+        #     return random_nde_body(num_modules)
         case "tree":
             return random_tree_body(num_modules)
+
+
+# -------------------------------------------------------------------------------
+
+
+
+# ---------------------------------- MUTATION & CROSSOVER --------------------
+
+#WRITE HERE CODE FOR POINT MUTATION
+#from website (point mutation)
+genome_pm = copy.deepcopy(genome)
+mutate_replace_node(genome_pm)
+validate_genome_dict(genome_pm.to_dict())
+
+#from website (sub-tree mutation)
+genome_sm = copy.deepcopy(genome)
+mutate_subtree_replacement(genome_sm, max_modules=10)
+validate_genome_dict(genome_sm.to_dict())
+
+
+
+#WRITE CROSSOVER CODE HERE
+#in ariel class available
+
+# -------------------------------------------------------------------------------
 
 
 # ============================================================================ #
@@ -251,6 +291,7 @@ def random_body(
 #
 # ============================================================================ #
 
+#FUNCTION BELOW SHOULD BE FIXED (NOT JUST 1 RANDOM BODY, BUT NEEDS TO BE USED FOR EVOLUTION)
 
 def fitness_function(
     body: nx.DiGraph,
@@ -268,10 +309,15 @@ def fitness_function(
     return mean_plus_std_tree_edit_distance(body, targets)
 
 
+#Add evaluation function for whole population (look at assignmetn 0 for inspo)
+
+
 # ============================================================================ #
 #  4. LOOKING AT A BODY
 # ============================================================================ #
 
+
+#We will not use MuJoCo for this assignment, just leave it here for now.
 
 def show_body(
     body: nx.DiGraph,
@@ -324,6 +370,15 @@ def show_body(
 # ============================================================================ #
 
 
+# ------------------------ ADAPTING MAIN FUNCTION BASED ON OUR ASSIGNMENT --------------
+
+#HERE STUFF NEEDS TO BE ADAPTED BASED ON FUNCTIONS MADE ABOVE?
+#Inserting a loop with creating an individual, then appending it to a list. Then at end of loop you have list
+#Then you create population
+
+# -------------------------------------------------------------------------------
+
+
 def main() -> None:
     """Score one randomly-sampled body against the target set."""
     targets = load_targets()
@@ -362,6 +417,18 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
+#WRITE SELECTION PART HERE
+
+
+
+
+
+
+
 
 
 # ============================================================================ #
