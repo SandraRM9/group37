@@ -4,7 +4,6 @@ The program compares two variants of the same EA:
     1. point mutation
     2. subtree replacement mutation
 
-Lower fitness is better.
 """
 
 import copy
@@ -52,10 +51,11 @@ type ViewerTypes = Literal["launcher", "video", "frame", "none"]
 
 SCRIPT_NAME = Path(__file__).stem
 HERE = Path(__file__).parent
-DATA = Path.cwd() / "__data__" / SCRIPT_NAME
+CWD = Path.cwd()
+DATA = CWD / "__data__" / SCRIPT_NAME
 DATA.mkdir(parents=True, exist_ok=True)
 
-TARGET_DIR = HERE / "target_bodies"
+TARGET_DIR: Path = HERE / "target_bodies"  # the bodies we must approach
 NUM_OF_MODULES = 20
 GENOTYPE = "tree"
 
@@ -68,11 +68,15 @@ GENOTYPE = "tree"
 # SEEDS = [10]
 # MODE = "none"
 
+#The required values for the assignment are as follows:
 POP_SIZE = 50
 GENERATIONS = 100
 SEEDS = [10, 20, 30, 40, 50]
 MODE: ViewerTypes = "none"
 SPAWN_POS = [0.0, 0.0, 0.1]
+
+P_CROSSOVER = 0.9
+P_MUTATION = 0.1
 
 # These two values are changed before every run.
 TARGETS: list[nx.DiGraph] = []
@@ -179,7 +183,7 @@ def make_individual() -> Individual:
     genome = random_tree(max_modules=NUM_OF_MODULES)
 
     individual = Individual()
-    individual.genotype = genome.to_dict()
+    individual.genotype = genome.to_dict()  #transform the genome to a dictionary representation
     individual.tags = {"selected": False}
 
     return individual
@@ -188,7 +192,7 @@ def make_individual() -> Individual:
 def evaluate(population: Population) -> Population:
     """Evaluate individuals that do not have fitness yet."""
     for individual in population.unevaluated:
-        genome = TreeGenome.from_dict(individual.genotype)
+        genome = TreeGenome.from_dict(individual.genotype) #Takes the dictionary and it returns a TreeGenome object
         body = genome.to_networkx()
 
         individual.fitness = fitness_function(body, TARGETS)
@@ -198,14 +202,14 @@ def evaluate(population: Population) -> Population:
 
 def parent_selection(population: Population) -> Population:
     """Select parents with the pairwise tournament from the example."""
-    shuffled = population.alive.shuffle()
+    shuffled = population.alive.shuffle() #It shuffles the population to select parents randomly with the property of alive individuals.
 
     for individual in shuffled:
         individual.tags = {"selected": False}
 
-    for idx in range(0, len(shuffled) - 1, 2):
-        individual_a = shuffled[idx]
-        individual_b = shuffled[idx + 1]
+    for i in range(0, len(shuffled) - 1, 2):
+        individual_a = shuffled[i]
+        individual_b = shuffled[i + 1]
 
         if individual_a.fitness_ is not None and individual_b.fitness_ is not None:
             # Lower fitness is better.
@@ -224,17 +228,20 @@ def crossover(population: Population) -> Population:
         and bool(individual.tags.get("selected", False)),
     ).shuffle()
 
-    for idx in range(0, len(parents) - 1, 2):
-        parent_a = parents[idx]
-        parent_b = parents[idx + 1]
+    for j in range(0, len(parents) - 1, 2):
+        parent_a = parents[j]
+        parent_b = parents[j + 1]
 
         genome_a = TreeGenome.from_dict(copy.deepcopy(parent_a.genotype))
         genome_b = TreeGenome.from_dict(copy.deepcopy(parent_b.genotype))
 
-        child_genome_a, child_genome_b = crossover_subtree(
-            genome_a,
-            genome_b,
-        )
+
+        if random.random() < P_CROSSOVER: #if the probability of crossover is less than the defined probability, then crossover is applied to the parents.
+            child_genome_a, child_genome_b = crossover_subtree(genome_a,genome_b)
+
+        else: #In case there is no crossover, the children are copies of the parents.
+            child_genome_a = genome_a
+            child_genome_b = genome_b
 
         child_a = Individual()
         child_a.genotype = child_genome_a.to_dict()
@@ -259,17 +266,19 @@ def mutate(population: Population) -> Population:
     for individual in offspring:
         genome = TreeGenome.from_dict(copy.deepcopy(individual.genotype))
 
-        if MUTATION_VARIANT == "point":
-            mutate_replace_node(genome)
-        elif MUTATION_VARIANT == "subtree":
-            mutate_subtree_replacement(
-                genome,
-                max_modules=NUM_OF_MODULES,
-            )
-        else:
-            raise ValueError(
-                f"Unknown mutation variant: {MUTATION_VARIANT}",
-            )
+        if random.random() < P_MUTATION: #if the probability of mutation is less than the defined probability, then mutation is applied to the offspring.
+
+            if MUTATION_VARIANT == "point":
+                mutate_replace_node(genome)
+            elif MUTATION_VARIANT == "subtree":
+                mutate_subtree_replacement(
+                    genome,
+                    max_modules=NUM_OF_MODULES,
+                )
+            else:
+                raise ValueError(
+                    f"Unknown mutation variant: {MUTATION_VARIANT}",
+                )
 
         individual.genotype = genome.to_dict()
         individual.requires_eval = True
@@ -280,10 +289,7 @@ def mutate(population: Population) -> Population:
 
 def survivor_selection(population: Population) -> Population:
     """Keep the POP_SIZE individuals with the lowest fitness."""
-    sorted_population = population.alive.sort(
-        sort="min",
-        attribute="fitness_",
-    )
+    sorted_population = population.alive.sort(sort="min", attribute="fitness_")
 
     survivors = sorted_population[:POP_SIZE].to_list()
     survivor_ids = {id(individual) for individual in survivors}
@@ -299,11 +305,8 @@ def survivor_selection(population: Population) -> Population:
 #  ONE INDEPENDENT RUN
 # ============================================================================ #
 
-def run_experiment(
-    targets: list[nx.DiGraph],
-    variant: str,
-    seed: int,
-) -> Individual:
+def run_experiment(targets: list[nx.DiGraph],variant: str,seed: int) -> Individual:
+
     """Run one EA variant with one independent seed."""
     global TARGETS, MUTATION_VARIANT
 
@@ -385,11 +388,7 @@ def main() -> None:
             console.log(f"variant       : {variant}")
             console.log(f"seed          : {seed}")
 
-            best = run_experiment(
-                targets=targets,
-                variant=variant,
-                seed=seed,
-            )
+            best = run_experiment(targets=targets,variant=variant,seed=seed)
 
             best_genome = TreeGenome.from_dict(best.genotype)
             best_body = best_genome.to_networkx()
@@ -397,9 +396,7 @@ def main() -> None:
 
             # database.db already contains all individuals. This separate JSON
             # makes the best final structure easy to inspect and reuse.
-            best_genome.save_json(
-                str(run_folder / "best_genome.json"),
-            )
+            best_genome.save_json(str(run_folder / "best_genome.json"))
 
             # Print the same information that the original main printed for
             # one random body, but now for the best evolved individual.
@@ -412,13 +409,12 @@ def main() -> None:
                 f"fitness       : {best.fitness_:.4f}   (lower is better)",
             )
 
-            show_body(
-                best_body,
-                mode=MODE,
-                file_name=f"best_{variant}_seed_{seed}",
-            )
+            show_body(best_body,mode=MODE,file_name=f"best_{variant}_seed_{seed}")
 
-    console.log(f"Results saved in {DATA}")
+
+ # This is outside both loops
+    console.log("")
+    console.log(f"All results saved in {DATA}" )           
 
 
 if __name__ == "__main__":

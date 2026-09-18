@@ -26,7 +26,7 @@ def get_fitness_history(database_path):
 
     connection = sqlite3.connect(database_path)
 
-    data = pd.read_sql("SELECT * FROM individual",connection,)
+    data = pd.read_sql("SELECT * FROM individual",connection)
 
     connection.close()
 
@@ -99,8 +99,8 @@ for variant in variants:
 
 
 plt.xlabel("Generation")
-plt.ylabel("Best fitness (lower is better)")
-plt.title("Fitness over generations")
+plt.ylabel("Mean fitness")
+plt.title("Mean Fitness over generations")
 plt.legend()
 plt.grid()
 
