@@ -56,7 +56,7 @@ DATA = CWD / "__data__" / SCRIPT_NAME
 DATA.mkdir(parents=True, exist_ok=True)
 
 TARGET_DIR: Path = HERE / "target_bodies"  # the bodies we must approach
-NUM_OF_MODULES = 20
+NUM_OF_MODULES = 25 #Changing from 20 to 25 to allow the EA to evolve more complex bodies that can match the target bodies.
 GENOTYPE = "tree"
 
 
