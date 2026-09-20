@@ -10,6 +10,8 @@ import pandas as pd
 
 from ariel.ec.genotypes.tree.tree_genome import TreeGenome
 
+from scipy.stats import wilcoxon
+
 
 # Folder created by the experiment script
 data_folder = Path("__data__") / "A1_complete_tree_b"
@@ -156,7 +158,7 @@ def main():
         results=results,
         metric="fitness",
         ylabel="Mean best fitness",
-        title="Best fitness over generations",
+        title="Mean best fitness over generations",
         filename="fitness_comparison.png",
     )
 
@@ -165,10 +167,37 @@ def main():
         results=results,
         metric="body_size",
         ylabel="Mean body size of best individual (modules)",
-        title="Body size of the best individual over generations",
+        title="Mean body size of the best individual over generations",
         filename="body_size_comparison.png",
+    )
+
+    #final best fitness point, subtree, random
+    point_final_fitness = results["point"]["fitness"][:,-1]
+    subtree_final_fitness = results["subtree"]["fitness"][:,-1]
+    random_final_fitness = results["random"]["fitness"][:,-1]
+
+    #mean and sd for point, subtree, random
+    print(
+        "Mean point:", np.mean(point_final_fitness),
+        "\nSD point:", np.std(point_final_fitness),
+        "\nMean subtree:", np.mean(subtree_final_fitness),
+        "\nSD subtree:", np.std(subtree_final_fitness),
+        "\nMean random:", np.mean(random_final_fitness),
+        "\nSD random:", np.std(random_final_fitness),
+    )
+
+    #Wilcoxon test one-sided
+    result_wilcoxon_point_sub = wilcoxon(point_final_fitness, subtree_final_fitness, alternative="less") #point vs subtree
+    result_wilcoxon_point_random = wilcoxon(point_final_fitness, random_final_fitness, alternative="less") #point vs subtree
+    result_wilcoxon_sub_random = wilcoxon(subtree_final_fitness, random_final_fitness, alternative="less") #point vs subtree
+
+    print(
+        "Wilcoxon point subtree:", result_wilcoxon_point_sub,
+        "\nWilcoxon point random:", result_wilcoxon_point_random,
+        "\nWilcoxon subtree random:", result_wilcoxon_sub_random
     )
 
 
 if __name__ == "__main__":
     main()
+
