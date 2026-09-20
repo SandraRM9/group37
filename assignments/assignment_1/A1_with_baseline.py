@@ -43,9 +43,9 @@ from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.video_recorder import VideoRecorder
 
 
-# ============================================================================ #
+#  ----------------------------------------------------------------------------- #
 #  CONFIGURATION
-# ============================================================================ #
+#  ----------------------------------------------------------------------------- #
 
 type ViewerTypes = Literal["launcher", "video", "frame", "none"]
 
@@ -83,9 +83,9 @@ TARGETS: list[nx.DiGraph] = []
 MUTATION_VARIANT = "point"
 
 
-# ----------------------------------------------------------------------------- #
+#  ----------------------------------------------------------------------------- #
 #  TARGETS AND FITNESS
-# ----------------------------------------------------------------------------- #
+#  ----------------------------------------------------------------------------- #
 
 def load_targets(target_dir: Path = TARGET_DIR) -> list[nx.DiGraph]:
     """Load every target body graph from a directory.
@@ -123,9 +123,9 @@ def fitness_function(
     return mean_plus_std_tree_edit_distance(body, targets)
 
 
-# ----------------------------------------------------------------------------- #
+#  ----------------------------------------------------------------------------- #
 #  VISUALISATION FROM THE TEMPLATE
-# ----------------------------------------------------------------------------- #
+#  ----------------------------------------------------------------------------- #
 
 def show_body(
     body: nx.DiGraph,
@@ -173,10 +173,9 @@ def show_body(
             video_renderer(model, data, duration=5.0, video_recorder=recorder)
 
 
-
-# ----------------------------------------------------------------------------- #
+#  ----------------------------------------------------------------------------- #
 #  EVOLUTIONARY ALGORITHM
-# ----------------------------------------------------------------------------- #
+#  ----------------------------------------------------------------------------- #
 
 def make_individual() -> Individual:
     """Create one random tree individual."""
@@ -301,9 +300,15 @@ def survivor_selection(population: Population) -> Population:
     return population
 
 
-# ----------------------------------------------------------------------------- #
+# ============================================================================ #
 #  ONE INDEPENDENT RUN
-# ----------------------------------------------------------------------------- #
+# ============================================================================ #
+
+def random_offspring(population: Population) -> Population:
+    """Generate completely new random individuals for the baseline."""
+    offspring = [make_individual() for _ in range(POP_SIZE)]
+    population.extend(offspring)
+    return population
 
 def run_experiment(targets: list[nx.DiGraph],variant: str,seed: int) -> Individual:
 
@@ -326,13 +331,21 @@ def run_experiment(targets: list[nx.DiGraph],variant: str,seed: int) -> Individu
 
     population = evaluate(population)
 
-    operations = [
-        EAOperation(parent_selection),
-        EAOperation(crossover),
-        EAOperation(mutate),
-        EAOperation(evaluate),
-        EAOperation(survivor_selection),
-    ]
+    # Chack if random-search baseline or EA for the mutations
+    if variant == "random":
+        operations = [
+            EAOperation(random_offspring),
+            EAOperation(evaluate),
+            EAOperation(survivor_selection),
+        ]
+    else:
+        operations = [
+            EAOperation(parent_selection),
+            EAOperation(crossover),
+            EAOperation(mutate),
+            EAOperation(evaluate),
+            EAOperation(survivor_selection),
+        ]
 
     run_folder = DATA / variant / f"seed_{seed}"
     run_folder.mkdir(parents=True, exist_ok=True)
@@ -351,9 +364,9 @@ def run_experiment(targets: list[nx.DiGraph],variant: str,seed: int) -> Individu
     return ea.get_solution("best", only_alive=True)
 
 
-# ----------------------------------------------------------------------------- #
+# ============================================================================ #
 #  ENTRY POINT
-# ----------------------------------------------------------------------------- #
+# ============================================================================ #
 
 def main() -> None:
     """Evolve populations and compare the two mutation variants."""
@@ -381,11 +394,9 @@ def main() -> None:
         f"target spread : mean pairwise distance {np.mean(spread):.2f}",
     )
 
-    # --- Evolutionary experiments --- #
-
-    for variant in ("point", "subtree"):
+    # --- Evolutionary experiments ----------------------------------------- #
+    for variant in ("point", "subtree", "random"):
         for seed in SEEDS:
-
             console.log("")
             console.log(f"variant       : {variant}")
             console.log(f"seed          : {seed}")
@@ -396,10 +407,12 @@ def main() -> None:
             best_body = best_genome.to_networkx()
             run_folder = DATA / variant / f"seed_{seed}"
 
-            # database.db already contains all individuals. This separate JSON makes the best final structure easy to inspect and reuse.
+            # database.db already contains all individuals. This separate JSON
+            # makes the best final structure easy to inspect and reuse.
             best_genome.save_json(str(run_folder / "best_genome.json"))
 
-            # Print the same information that the original main printed for one random body, but now for the best evolved individual.
+            # Print the same information that the original main printed for
+            # one random body, but now for the best evolved individual.
             console.log(f"best body     : {best_body.number_of_nodes()} modules")
             console.log(
                 "per-target    : "

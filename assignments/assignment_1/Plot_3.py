@@ -9,7 +9,7 @@ import pandas as pd
 
 
 # Folder created by A1_complete_tree.py
-data_folder = Path("__data__") / "A1_complete_tree_b"
+data_folder = Path("__data__") / "copy"
 
 # Independent runs
 seeds = [10, 20, 30, 40, 50]

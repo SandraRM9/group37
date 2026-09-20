@@ -42,10 +42,9 @@ from ariel.simulation.environments import SimpleFlatWorld
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.video_recorder import VideoRecorder
 
-
-# ============================================================================ #
+#  ----------------------------------------------------------------------------- #
 #  CONFIGURATION
-# ============================================================================ #
+#  ----------------------------------------------------------------------------- #
 
 type ViewerTypes = Literal["launcher", "video", "frame", "none"]
 
@@ -72,6 +71,7 @@ GENOTYPE = "tree"
 POP_SIZE = 50
 GENERATIONS = 100
 SEEDS = [10, 20, 30, 40, 50]
+MUTATION_VARIANT = "point"  #is the default value to start the algorithm, but it will be changed to "subtree" when the second variant is tested
 MODE: ViewerTypes = "none"
 SPAWN_POS = [0.0, 0.0, 0.1]
 
@@ -80,9 +80,9 @@ P_MUTATION = 0.1
 
 # These two values are changed before every run.
 TARGETS: list[nx.DiGraph] = []
-MUTATION_VARIANT = "point"
 
 
+BODY_SIZE_HISTORY: list[float] = []
 # ----------------------------------------------------------------------------- #
 #  TARGETS AND FITNESS
 # ----------------------------------------------------------------------------- #
@@ -178,8 +178,7 @@ def show_body(
 #  EVOLUTIONARY ALGORITHM
 # ----------------------------------------------------------------------------- #
 
-def make_individual() -> Individual:
-    """Create one random tree individual."""
+def make_individual() -> Individual: #Create one random tree individual.
     genome = random_tree(max_modules=NUM_OF_MODULES)
 
     individual = Individual()
@@ -189,8 +188,7 @@ def make_individual() -> Individual:
     return individual
 
 
-def evaluate(population: Population) -> Population:
-    """Evaluate individuals that do not have fitness yet."""
+def evaluate(population: Population) -> Population: #Evaluate individuals that do not have fitness yet.
     for individual in population.unevaluated:
         genome = TreeGenome.from_dict(individual.genotype) #Takes the dictionary and it returns a TreeGenome object
         body = genome.to_networkx()
@@ -200,8 +198,9 @@ def evaluate(population: Population) -> Population:
     return population
 
 
+#Select parents with the pairwise tournament, similar to the examplo
 def parent_selection(population: Population) -> Population:
-    """Select parents with the pairwise tournament from the example."""
+    
     shuffled = population.alive.shuffle() #It shuffles the population to select parents randomly with the property of alive individuals.
 
     for individual in shuffled:
@@ -220,9 +219,9 @@ def parent_selection(population: Population) -> Population:
 
     return population
 
-
-def crossover(population: Population) -> Population:
-    """Apply ARIEL subtree crossover to selected parents."""
+#Apply ARIEL subtree crossover to selected parents.
+def crossover(population: Population) -> Population: 
+    
     parents = population.where(
         lambda individual: individual.alive
         and bool(individual.tags.get("selected", False)),
@@ -286,9 +285,10 @@ def mutate(population: Population) -> Population:
 
     return population
 
-
+#This function is used to select the survivors of the population based on their fitness. 
+# It sorts the population by fitness and keeps the individuals with the lowest fitness values (POP_SIZE), marking the rest as not alive.
 def survivor_selection(population: Population) -> Population:
-    """Keep the POP_SIZE individuals with the lowest fitness."""
+    
     sorted_population = population.alive.sort(sort="min", attribute="fitness_")
 
     survivors = sorted_population[:POP_SIZE].to_list()
@@ -300,6 +300,26 @@ def survivor_selection(population: Population) -> Population:
 
     return population
 
+#In order to keep the information of the average body size of the population, we create a function that calculates 
+# the average body size of the living population and appends it to a list called BODY_SIZE_HISTORY. 
+# This function is called after each generation to keep track of the average body size over time.
+def record_body_size(population: Population) -> Population:
+    
+    body_sizes = [len(individual.genotype["nodes"])
+        for individual in population.alive
+    ]
+
+    BODY_SIZE_HISTORY.append(float(np.mean(body_sizes)))
+
+    return population
+
+#In order to have a baseline for comparison, we create a function that generates completely new random individuals
+# for the baseline.
+def random_offspring(population: Population) -> Population:
+
+    offspring = [make_individual() for _ in range(24)]
+    population.extend(offspring)
+    return population
 
 # ----------------------------------------------------------------------------- #
 #  ONE INDEPENDENT RUN
@@ -307,7 +327,7 @@ def survivor_selection(population: Population) -> Population:
 
 def run_experiment(targets: list[nx.DiGraph],variant: str,seed: int) -> Individual:
 
-    """Run one EA variant with one independent seed."""
+    #Run one EA variant with one independent seed.
     global TARGETS, MUTATION_VARIANT
 
     TARGETS = targets
@@ -324,20 +344,32 @@ def run_experiment(targets: list[nx.DiGraph],variant: str,seed: int) -> Individu
         for _ in range(POP_SIZE)
     ])
 
+    #Create the population and evaluate it to assign fitness values to the individuals. And also retrieve the average 
+    # body size of the population and store it in the BODY_SIZE_HISTORY list.
     population = evaluate(population)
+    BODY_SIZE_HISTORY.clear()
+    record_body_size(population) #append the new population average body size to the BODY_SIZE_HISTORY list.
 
-    operations = [
-        EAOperation(parent_selection),
-        EAOperation(crossover),
-        EAOperation(mutate),
-        EAOperation(evaluate),
-        EAOperation(survivor_selection),
-    ]
-
+    # Check if random-search baseline or EA for the mutations
+    if variant == "random":
+        operations = [
+            EAOperation(random_offspring),
+            EAOperation(evaluate),
+            EAOperation(survivor_selection),
+        ]
+    else:
+        operations = [
+            EAOperation(parent_selection),
+            EAOperation(crossover),
+            EAOperation(mutate),
+            EAOperation(evaluate),
+            EAOperation(survivor_selection),
+        ]
+    
     run_folder = DATA / variant / f"seed_{seed}"
     run_folder.mkdir(parents=True, exist_ok=True)
 
-    ea = EA(
+    ea = EA(     #use the EA class to run the evolutionary algorithm with the specified parameters and operations.
         population,
         operations,
         num_steps=GENERATIONS,
@@ -347,6 +379,17 @@ def run_experiment(targets: list[nx.DiGraph],variant: str,seed: int) -> Individu
     )
 
     ea.run()
+
+    #Now we keep the information about  the average of the boday size along generations
+    generations = np.arange(len(BODY_SIZE_HISTORY))
+
+    np.savetxt(
+        run_folder / "body_size_history.csv",
+        np.column_stack((generations, BODY_SIZE_HISTORY)),
+        delimiter=",",
+        header="generation,average_body_size",
+        comments="",
+    )
 
     return ea.get_solution("best", only_alive=True)
 
@@ -383,7 +426,7 @@ def main() -> None:
 
     # --- Evolutionary experiments --- #
 
-    for variant in ("point", "subtree"):
+    for variant in ("point", "subtree", "random"):
         for seed in SEEDS:
 
             console.log("")
