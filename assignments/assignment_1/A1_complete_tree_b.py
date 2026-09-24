@@ -356,6 +356,7 @@ def run_experiment(targets: list[nx.DiGraph],variant: str,seed: int) -> Individu
             EAOperation(random_offspring),
             EAOperation(evaluate),
             EAOperation(survivor_selection),
+            EAOperation(record_body_size),
         ]
     else:
         operations = [
@@ -364,6 +365,7 @@ def run_experiment(targets: list[nx.DiGraph],variant: str,seed: int) -> Individu
             EAOperation(mutate),
             EAOperation(evaluate),
             EAOperation(survivor_selection),
+            EAOperation(record_body_size),
         ]
     
     run_folder = DATA / variant / f"seed_{seed}"
