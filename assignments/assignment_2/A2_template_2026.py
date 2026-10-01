@@ -37,7 +37,8 @@ from mujoco import viewer
 # Local libraries (ARIEL)
 from ariel import console
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
-from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
+from ariel.body_phenotypes.robogen_lite.prebuilt_robots.john_set import iguana
+# from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 from ariel.ec import set_seed
 from ariel.simulation.environments import SimpleFlatWorld  #this is one of the worlds we can use
 from ariel.utils.renderers import single_frame_renderer, video_renderer
@@ -102,7 +103,7 @@ def build_robot() -> CoreModule:
     Change the body and your genotype length changes with it. Keep the body
     FIXED within an experiment.
     """
-    return gecko()
+    return iguana()
 
 
 # ============================================================================ #
