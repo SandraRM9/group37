@@ -26,20 +26,24 @@ a rendered video, or a single frame.
 
 # Standard library
 from pathlib import Path
+import argparse
+import csv
+import json
 from typing import Literal
 
 # Third-party libraries
 import mujoco as mj
 import numpy as np
+import matplotlib.pyplot as plt
 import numpy.typing as npt
 from mujoco import viewer
 
 # Local libraries (ARIEL)
 from ariel import console
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
-from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
-from ariel.ec import set_seed
-from ariel.simulation.environments import SimpleFlatWorld  #this is one of the worlds we can use
+from ariel.body_phenotypes.robogen_lite.prebuilt_robots.john_set import gecko
+from ariel.ec import EA, EAOperation, Individual, Population, set_seed
+from ariel.simulation.environments import SimpleFlatWorld
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.runners import simple_runner
 from ariel.utils.video_recorder import VideoRecorder
@@ -128,10 +132,37 @@ def build_robot() -> CoreModule:
 #
 # ============================================================================ #
 
-
-
 # Controller architecture - decide before writing your EA.
 HIDDEN_SIZE: int = 6
+
+# ADDED: common settings for both research questions.
+MU = 12
+LAMBDA = 36
+SIGMA = 0.10
+PATIENCE = 12
+MIN_GENERATIONS = 20
+MAX_GENERATIONS = 100  # safety limit; report when it is reached.
+IMPROVEMENT = 1e-4
+DEFAULT_SEEDS = (11, 22, 33, 44, 55)
+EVAL_LOGS = False
+
+
+
+#his one we should check what is de reason for adding the sin and cos of the time, 
+# but it is a way to give the network a sense of time, so it can learn to produce rhythmic patterns of movement. 
+# The target direction is also added to give the network information about where the target is located relative to the robot's current position.
+#  This can help the network learn to move towards the target more effectively.
+def controller_inputs(data: mj.MjData) -> npt.NDArray[np.float64]:
+    """ADDED: body state, rhythmic clock and direction to fixed target."""
+    target_direction = (
+        np.asarray(TARGET_POSITION[:2]) - np.asarray(data.qpos[:2])
+    )
+    return np.concatenate((
+        np.asarray(data.qpos),
+        [np.sin(2 * np.pi * data.time), np.cos(2 * np.pi * data.time)],
+        target_direction,
+    ))
+
 
 
 def nn_controller(
@@ -165,12 +196,11 @@ def nn_controller(
     # --- INPUTS ---------------------------------------------------------- #
     # Bare qpos - the simplest choice, not necessarily a good one. See
     # YOUR JOB below.
-    inputs = data.qpos    #vector of the position of the robot, it is a vector of 15 elements, the first 3 are the position of the robot in the world, and the rest are the angles of the joints
+
+    #inputs = data.qpos --> esto era lo que habia antes, pero lo he cambiado para añadir el sin y cos del tiempo y la direccion al target
+    inputs = controller_inputs(data)
 
     # --- FORWARD PASS ----------------------------------------------------- #
-    #This represents the hidden layers of the neural network, it is a simple feedforward neural network with one hidden 
-    # layer and tanh activation function. Se san tanh because it is a smooth function that outputs values in the range [-1, 1],
-    # which is suitable for our control problem; y despues de hacer la operacion de del output de la red neuronal, pueden salir numeros muy altos.
     layer1 = np.tanh(inputs @ w1)
     outputs = np.tanh(layer1 @ w2)  # in [-1, 1]
 
@@ -240,7 +270,11 @@ def fitness_function(
 # ============================================================================ #
 
 
-def run_experiment(mode: ViewerTypes = MODE) -> float:
+def run_experiment(
+    mode: ViewerTypes = MODE,
+    genotype: list[float] | None = None,
+    verbose: bool = True,
+) -> float:
     """Set up the world, run one simulation, and return the fitness.
 
     This is the function your EA calls once per individual, with `mode` set
@@ -275,10 +309,15 @@ def run_experiment(mode: ViewerTypes = MODE) -> float:
     # --- Wire up the controller -------------------------------------------- #
     # Sizes are read from the compiled model, never hardcoded - they depend on
     # the body you chose in build_robot().
-    input_size = len(data.qpos)
+    input_size = len(controller_inputs(data))
     output_size = model.nu
 
-    weights = make_random_weights(input_size, output_size)
+    # ADDED: preserve the demo when no genotype is supplied.
+    weights = (
+        make_random_weights(input_size, output_size)
+        if genotype is None
+        else genotype_to_weights(genotype, input_size, output_size)
+    )
 
     def control_callback(m: mj.MjModel, d: mj.MjData) -> None:
         """Compute and apply actions; MuJoCo calls this every physics step."""
@@ -299,44 +338,46 @@ def run_experiment(mode: ViewerTypes = MODE) -> float:
     if mode != "no_control":
         mj.set_mjcb_control(control_callback)
 
-    match mode:
-        case "launcher":
-            # Interactive window. Great for seeing what your robot does,
-            # useless inside an evolutionary loop.
-            viewer.launch(model=model, data=data)
-        case "simple":
-            # Headless. THIS is the one your EA uses.
-            simple_runner(model, data, duration=SIM_DURATION)
-        case "video":
-            # Render to an mp4 - for the figures in your report.
-            recorder = VideoRecorder(output_folder=str(DATA / "__videos__"))
-            video_renderer(
-                model,
-                data,
-                duration=SIM_DURATION,
-                video_recorder=recorder,
-            )
-        case "frame":
-            # A single image of the scene. Useful to check your spawn position
-            # and that the robot is not clipping through the floor.
-            single_frame_renderer(model, data, steps=1, show=True)
-        case "no_control":
-            # No controller attached: drag the hinges around by hand.
-            viewer.launch(model=model, data=data)
+    try:
+        match mode:
+            case "launcher":
+                # Interactive window. Great for seeing what your robot does,
+                # useless inside an evolutionary loop.
+                viewer.launch(model=model, data=data)
+            case "simple":
+                # Headless. THIS is the one your EA uses.
+                simple_runner(model, data, duration=SIM_DURATION)
+            case "video":
+                # Render to an mp4 - for the figures in your report.
+                recorder = VideoRecorder(output_folder=str(DATA / "__videos__"))
+                video_renderer(
+                    model,
+                    data,
+                    duration=SIM_DURATION,
+                    video_recorder=recorder,
+                )
+            case "frame":
+                # A single image of the scene. Useful to check your spawn position
+                # and that the robot is not clipping through the floor.
+                single_frame_renderer(model, data, steps=1, show=True)
+            case "no_control":
+                # No controller attached: drag the hinges around by hand.
+                viewer.launch(model=model, data=data)
 
-    # Detach the callback again so the next run starts clean.
-    mj.set_mjcb_control(None)
+    finally:
+        mj.set_mjcb_control(None)
 
     # --- Score -------------------------------------------------------------- #
     final_position = get_core_position(data)
     fitness = fitness_function(initial_position, final_position)
 
-    console.log(f"start  : {np.round(initial_position, 3)}")
-    console.log(f"end    : {np.round(final_position, 3)}")
-    console.log(f"target : {np.round(TARGET_POSITION, 3)}")
-    console.log(f"fitness: {fitness:.4f}   (lower is better)")
+    if verbose:
+        console.log(f"start  : {np.round(initial_position, 3)}")
+        console.log(f"end    : {np.round(final_position, 3)}")
+        console.log(f"target : {np.round(TARGET_POSITION, 3)}")
+        console.log(f"fitness: {fitness:.4f}   (lower is better)")
 
-    return fitness
+    return fitness if np.isfinite(fitness) else 1_000_000.0
 
 
 def main() -> None:
@@ -353,7 +394,7 @@ def main() -> None:
     model = world.spec.compile()
     data = mj.MjData(model)
 
-    input_size = len(data.qpos)
+    input_size = len(controller_inputs(data))
     output_size = model.nu
     num_weights = (
         input_size * HIDDEN_SIZE
@@ -366,8 +407,7 @@ def main() -> None:
     run_experiment(MODE)
 
 
-if __name__ == "__main__":
-    main()
+# ADDED: evolutionary experiment below; main() above remains as a demo.
 
 
 # ============================================================================ #
@@ -407,3 +447,216 @@ if __name__ == "__main__":
 #     everything you compare. Change one thing at a time.
 #
 # ============================================================================ #
+
+
+def genotype_to_weights(
+    genotype: list[float], input_size: int, output_size: int,
+) -> list[npt.NDArray[np.float64]]:
+    """Convert one flat list of real-valued genes into the original w1, w2."""
+    genes = np.asarray(genotype, dtype=np.float64)
+    cut = input_size * HIDDEN_SIZE
+    required = cut + HIDDEN_SIZE * output_size
+    if genes.size != required:
+        raise ValueError(f"Expected {required} weights; got {genes.size}")
+    return [
+        genes[:cut].reshape(input_size, HIDDEN_SIZE),
+        genes[cut:].reshape(HIDDEN_SIZE, output_size),
+    ]
+
+
+def make_individual(rng: np.random.Generator, length: int) -> Individual:
+    individual = Individual()
+    individual.genotype = rng.normal(0, 0.5, length).tolist()
+    return individual
+
+
+def get_genotype_length() -> int:
+    mj.set_mjcb_control(None)
+    world = build_world()
+    robot = build_robot()
+    world.spawn(robot.spec, position=SPAWN_POS, correct_collision_with_floor=True)
+    model = world.spec.compile()
+    data = mj.MjData(model)
+    return len(controller_inputs(data)) * HIDDEN_SIZE + HIDDEN_SIZE * model.nu
+
+
+def compare_run(question: int, variant: str, seed: int, quick: bool) -> dict:
+    """One independent run; ariel.ec persists each generation in SQLite."""
+    rng = np.random.default_rng(seed)
+    set_seed(seed)
+    mu = 4 if quick else MU
+    lam = 8 if quick else LAMBDA
+    min_generations = 2 if quick else MIN_GENERATIONS
+    patience = 2 if quick else PATIENCE
+    max_generations = 3 if quick else MAX_GENERATIONS
+    length = get_genotype_length()
+    output = DATA / f"q{question}" / variant / f"seed_{seed}"
+    output.mkdir(parents=True, exist_ok=True)
+
+    def evaluate(population: Population) -> Population:
+        for ind in population.unevaluated:
+            ind.fitness = run_experiment("simple", ind.genotype, verbose=EVAL_LOGS)
+        return population
+
+    def reproduce(population: Population) -> Population:
+        parents = list(population.alive)
+        for _ in range(lam):
+            a = parents[int(rng.integers(len(parents)))]
+            genes = np.asarray(a.genotype, dtype=float).copy()
+            if question == 3 and variant == "recombination":
+                b = parents[int(rng.integers(len(parents)))]
+                mask = rng.random(length) < 0.5
+                genes[mask] = np.asarray(b.genotype, dtype=float)[mask]
+            # Both arms use exactly the same Gaussian mutation.
+            genes += rng.normal(0.0, SIGMA, size=length)
+            child = Individual()
+            child.genotype = genes.tolist()
+            population.append(child)
+        return population
+
+    def survivors(population: Population) -> Population:
+        parents = [ind for ind in population.alive if ind.time_of_birth < generation]
+        children = [ind for ind in population.alive if ind.time_of_birth == -1]
+        # Offspring have not yet been committed, so their birth time is -1.
+        candidates = children if question == 2 and variant == "comma" else parents + children
+        chosen = sorted(candidates, key=lambda ind: ind.fitness)[:mu]
+        keep = {id(ind) for ind in chosen}
+        for ind in population.alive:
+            if id(ind) not in keep:
+                ind.alive = False
+        return population
+
+    initial = Population([make_individual(rng, length) for _ in range(mu)])
+    evaluate(initial)
+    db_path = output / "generations.db"
+    ea = EA(initial, [EAOperation(reproduce), EAOperation(evaluate),
+                      EAOperation(survivors)], db_file_path=db_path,
+            db_handling="delete", is_maximisation=False, quiet=True)
+
+    def current_stats(generation_number: int, incumbent: float) -> dict:
+        scores = np.array([ind.fitness for ind in ea.population.alive], dtype=float)
+        return {"generation": generation_number, "best": float(scores.min()),
+                "mean": float(scores.mean()), "worst": float(scores.max()),
+                "best_so_far": min(incumbent, float(scores.min()))}
+
+    history = [current_stats(0, float("inf"))]
+    incumbent = history[0]["best_so_far"]
+    stagnant = 0
+    stop_reason = "maximum generations reached"
+    generation = 0
+    for generation in range(1, max_generations + 1):
+        ea.step()
+        stats = current_stats(generation, incumbent)
+        history.append(stats)
+        if stats["best_so_far"] < incumbent - IMPROVEMENT:
+            stagnant = 0
+        else:
+            stagnant += 1
+        incumbent = min(incumbent, stats["best_so_far"])
+        if generation >= min_generations and stagnant >= patience:
+            stop_reason = "fitness plateau"
+            break
+
+    budget = mu + lam * generation
+    with (output / "history.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(history[0]))
+        writer.writeheader()
+        writer.writerows(history)
+
+    best = min(ea._fetch(only_alive=False), key=lambda ind: ind.fitness)
+    (output / "best_genotype.json").write_text(
+        json.dumps({"genotype": best.genotype, "fitness": best.fitness}),
+        encoding="utf-8",
+    )
+    # Random search gets exactly the same number of simulator evaluations.
+    baseline_rng = np.random.default_rng(seed + 1_000_000)
+    baseline = float("inf")
+    random_history = []
+    for generation_number in range(generation + 1):
+        count = mu if generation_number == 0 else lam
+        for _ in range(count):
+            candidate = make_individual(baseline_rng, length)
+            baseline = min(baseline, run_experiment("simple", candidate.genotype,
+                                                    verbose=False))
+        random_history.append(baseline)
+    with (output / "baseline.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["generation", "best_so_far"])
+        writer.writerows(enumerate(random_history))
+
+    summary = {"question": question, "variant": variant, "seed": seed,
+               "budget": budget, "generations": generation,
+               "stop_reason": stop_reason, "best": incumbent,
+               "baseline_best": baseline, "history": history,
+               "random_history": random_history}
+    (output / "summary.json").write_text(json.dumps(summary, indent=2),
+                                           encoding="utf-8")
+    return summary
+
+
+def save_comparison(question: int, runs: list[dict]) -> None:
+    """Average and SD at an evaluation budget shared by all runs."""
+    output = DATA / f"q{question}"
+    variants = ("plus", "comma") if question == 2 else ("mutation", "recombination")
+    common_len = min(len(run["history"]) for run in runs)
+    with (output / "comparison.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["variant", "generation", "mean_best", "std_best",
+                         "mean_random", "std_random", "number_of_runs"])
+        for variant in variants:
+            subset = [run for run in runs if run["variant"] == variant]
+            x = np.arange(common_len)
+            values = np.array([[r["history"][i]["best_so_far"]
+                                for i in x] for r in subset])
+            random = np.array([[r["random_history"][i]
+                                for i in x] for r in subset])
+            mean, sd = values.mean(axis=0), values.std(axis=0)
+            rmean, rsd = random.mean(axis=0), random.std(axis=0)
+            for i in x:
+                writer.writerow([variant, i, mean[i], sd[i], rmean[i], rsd[i],
+                                 len(subset)])
+            plt.plot(x, mean, label=variant)
+            plt.fill_between(x, mean - sd, mean + sd, alpha=0.16)
+            plt.plot(x, rmean, linestyle="--", alpha=0.6,
+                     label=f"random baseline ({variant})")
+    plt.xlabel("Generations (equal evaluation budget across variants)")
+    plt.ylabel("Best-so-far distance to target (lower is better)")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output / "convergence.png", dpi=180)
+    plt.close()
+
+
+def experiment_main() -> None:
+    global SIM_DURATION
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--question", type=int, choices=(2, 3))
+    parser.add_argument("--seeds", type=int, nargs="+", default=list(DEFAULT_SEEDS))
+    parser.add_argument("--quick", action="store_true",
+                        help="Pipeline test: tiny population, 3 generations, one seed")
+    parser.add_argument("--demo", action="store_true")
+    args = parser.parse_args()
+    if args.demo:
+        main()
+        return
+    if args.question is None:
+        parser.error("Choose --question 2 or --question 3 (or use --demo)")
+    if args.quick:
+        SIM_DURATION = 2.0  # debugging only; final experiments use 15 s.
+    seeds = args.seeds[:1] if args.quick else args.seeds
+    variants = ("plus", "comma") if args.question == 2 else (
+        "mutation", "recombination")
+    runs = []
+    for variant in variants:
+        for seed in seeds:
+            result = compare_run(args.question, variant, seed, args.quick)
+            runs.append(result)
+            print(variant, seed, "best", round(result["best"], 4),
+                  "random", round(result["baseline_best"], 4),
+                  "evaluations", result["budget"], result["stop_reason"])
+    save_comparison(args.question, runs)
+    print("Saved output to", DATA / f"q{args.question}")
+
+
+if __name__ == "__main__":
+    experiment_main()
