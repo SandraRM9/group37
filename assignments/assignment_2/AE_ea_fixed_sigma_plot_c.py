@@ -1,4 +1,5 @@
 import argparse
+import json
 import random
 
 import matplotlib.pyplot as plt
@@ -21,19 +22,18 @@ from ariel.utils.video_recorder import VideoRecorder
 POPULATION_SIZE = 30
 OFFSPRING_SIZE = 40
 
-TOURNAMENT_SIZE = 3 #In the tournament selection, how many individuals compete to be a parent (They are selected by random).
+TOURNAMENT_SIZE = 3  # Number of individuals competing in tournament selection.
 
 CROSSOVER_RATE = 0.5
 MUTATION_RATE = 0.10
 MUTATION_SIGMA = 0.10
 
-MAX_GENERATIONS = 100 #We select a maximum number, although in every run it stops before getting 100 generations. 
-#This was more for the implementation of the code and to try its functionality.
-#  The stopping criteria is the target threshold or the plateau, which are explained below.
+MAX_GENERATIONS = 100  # Maximum number of generations.
+# The run can stop earlier if the target is reached or if a plateau is detected.
 PLATEAU_PATIENCE = 20
 PLATEAU_MIN_IMPROVEMENT = 0.001
 
-TARGET_THRESHOLD = 0.50 #We need to change to something smaller than 0.05 or maybe 0
+TARGET_THRESHOLD = 0.02  # Stop when the best fitness reaches this value.
 
 SEEDS = [0, 1, 2, 3, 4]
 STRATEGIES = ["mu_plus_lambda", "mu_comma_lambda"]
@@ -43,7 +43,7 @@ STRATEGIES = ["mu_plus_lambda", "mu_comma_lambda"]
 # Simulation and genotype
 # ------------------------------------------------------------
 
-#Create and compile the MuJoCo model once
+# Create and compile the MuJoCo model once.
 def make_model():
 
     mj.set_mjcb_control(None)
@@ -60,16 +60,17 @@ def make_model():
 
     return model
 
-#Create fresh simulation data for one evaluation.
+
+# Create fresh simulation data for one evaluation.
 def make_data(model):
-   
     data = mj.MjData(model)
     mj.mj_resetData(model, data)
     mj.mj_forward(model, data)
 
     return data
 
-#Get the input and output sizes of the neural controller.
+
+# Get the input and output sizes of the neural controller.
 def get_network_sizes(model):
 
     data = make_data(model)
@@ -78,15 +79,13 @@ def get_network_sizes(model):
 
     return input_size, output_size
 
-
+#Calculate how many weights the neural network needs.
 def get_genotype_length(input_size, output_size):
-    """Calculate how many weights the neural network needs."""
 
     return input_size * base.HIDDEN_SIZE + base.HIDDEN_SIZE * output_size
 
-
+#Convert one flat genotype vector into the two NN weight matrices."""
 def genotype_to_weights(genotype, input_size, output_size):
-    """Convert one flat genotype vector into the two NN weight matrices."""
 
     genes = np.asarray(genotype, dtype=np.float64)
 
@@ -103,7 +102,6 @@ def genotype_to_weights(genotype, input_size, output_size):
 # ------------------------------------------------------------
 
 def make_individual(genotype_length):
-    """Create one random individual."""
 
     individual = Individual()
 
@@ -112,10 +110,8 @@ def make_individual(genotype_length):
 
     return individual
 
-
 def evaluate_individual(individual, model, input_size, output_size):
-    """Evaluate one individual by running the robot simulation."""
-
+   
     data = make_data(model)
 
     weights = genotype_to_weights(
@@ -143,19 +139,13 @@ def evaluate_individual(individual, model, input_size, output_size):
 
     return fitness
 
-
+#Evaluate all individuals that still need evaluation.
 def evaluate_population(population, model, input_size, output_size):
-    """Evaluate all individuals that still need evaluation."""
-
+    
     for individual in population:
         if individual.requires_eval:
-            evaluate_individual(
-                individual,
-                model,
-                input_size,
-                output_size,
-            )
-
+            evaluate_individual(individual, model,input_size,output_size) 
+    
     return population
 
 
@@ -163,8 +153,8 @@ def evaluate_population(population, model, input_size, output_size):
 # Parent selection and variation
 # ------------------------------------------------------------
 
+#Select one parent using tournament selection.
 def tournament_selection(population):
-    """Select one parent using tournament selection."""
 
     competitors = random.choices(list(population), k=TOURNAMENT_SIZE)
 
@@ -176,10 +166,9 @@ def tournament_selection(population):
 
     return best
 
-
+#Create a child genotype using arithmetic crossover.
 def crossover(parent_1, parent_2):
-    """Create a child genotype using arithmetic crossover."""
-
+  
     if random.random() > CROSSOVER_RATE:
         return list(parent_1.genotype)
 
@@ -192,10 +181,9 @@ def crossover(parent_1, parent_2):
 
     return child.tolist()
 
-
+#Mutate genes using fixed-sigma Gaussian mutation.
 def gaussian_mutation(genotype):
-    """Mutate genes using fixed-sigma Gaussian mutation."""
-
+    
     genotype = np.asarray(genotype, dtype=np.float64)
 
     mutation_mask = np.random.random(genotype.shape) < MUTATION_RATE
@@ -206,10 +194,9 @@ def gaussian_mutation(genotype):
 
     return genotype.tolist()
 
-
+#Create one child from two selected parents.
 def make_child(population):
-    """Create one child from two selected parents."""
-
+    
     parent_1 = tournament_selection(population)
     parent_2 = tournament_selection(population)
 
@@ -222,10 +209,9 @@ def make_child(population):
 
     return child
 
-
+#Create the offspring population.
 def make_offspring(population):
-    """Create the offspring population."""
-
+  
     offspring = Population([])
 
     for _ in range(OFFSPRING_SIZE):
@@ -260,10 +246,9 @@ def survivor_selection(parents, offspring, strategy):
 
     return survivors
 
-
+#Check whether the best fitness has stopped improving.
 def has_plateau(best_history):
-    """Check whether the best fitness has stopped improving."""
-
+    
     if len(best_history) < PLATEAU_PATIENCE + 1:
         return False
 
@@ -274,10 +259,9 @@ def has_plateau(best_history):
 
     return improvement < PLATEAU_MIN_IMPROVEMENT
 
-
+#Measure average distance between genotypes.
 def population_diversity(population):
-    """Measure average distance between genotypes."""
-
+    
     distances = []
 
     for i in range(len(population)):
@@ -300,7 +284,6 @@ def population_diversity(population):
 # ------------------------------------------------------------
 
 def run_ea(strategy, seed):
-    """Run one complete evolutionary algorithm experiment."""
 
     random.seed(seed)
     np.random.seed(seed)
@@ -317,12 +300,7 @@ def run_ea(strategy, seed):
         individual = make_individual(genotype_length)
         parents.append(individual)
 
-    parents = evaluate_population(
-        parents,
-        model,
-        input_size,
-        output_size,
-    )
+    parents = evaluate_population(parents,model,input_size,output_size)
 
     best_history = []
     mean_history = []
@@ -336,13 +314,7 @@ def run_ea(strategy, seed):
     for generation in range(MAX_GENERATIONS):
         offspring = make_offspring(parents)
 
-        offspring = evaluate_population(
-            offspring,
-            model,
-            input_size,
-            output_size,
-        )
-
+        offspring = evaluate_population(offspring,model,input_size,output_size)
         parents = survivor_selection(parents, offspring, strategy)
 
         fitness_values = []
@@ -397,7 +369,7 @@ def run_ea(strategy, seed):
 # ------------------------------------------------------------
 
 def get_trajectory(individual):
-    """Get the path followed by one individual."""
+    #Get the path followed by one individual.
 
     model = make_model()
     data = make_data(model)
@@ -430,10 +402,9 @@ def get_trajectory(individual):
 
     return np.asarray(trajectory)
 
-
+#Save a plot of the robot trajectory.
 def save_trajectory_plot(individual, name):
-    """Save a plot of the robot trajectory."""
-
+    
     trajectory = get_trajectory(individual)
 
     plt.figure()
@@ -582,11 +553,44 @@ def save_combined_fitness_plot(results):
 
 
 # ------------------------------------------------------------
+# Save and load plot data
+# ------------------------------------------------------------
+
+#Save only the information needed to redraw the fitness plot.
+def save_plot_data(results, filename="plot_results.json"):
+
+    plot_data = []
+
+    for result in results:
+        plot_data.append(
+            {
+                "strategy": result["strategy"],
+                "seed": result["seed"],
+                "generations_run": result["generations_run"],
+                "best_history": result["best_history"],
+                "best_fitness": result["best_fitness"],
+                "final_diversity": result["final_diversity"],
+                "stopping_reason": result["stopping_reason"],
+            }
+        )
+
+    with open(filename, "w") as file:
+        json.dump(plot_data, file)
+
+#In order to save time, we can load the previous results and plot them without running the simulations again.
+def load_plot_data(filename="plot_results.json"):
+    """Load previous EA results without running the simulations again."""
+
+    with open(filename, "r") as file:
+        return json.load(file)
+
+
+# ------------------------------------------------------------
 # Compare strategies
 # ------------------------------------------------------------
 
-def compare_strategies(seeds, strategies):
-    """Run all seeds and strategies, then save plots and videos."""
+#Run all seeds and strategies, then save plots and videos.
+def compare_strategies(seeds, strategies, save_videos=False):
 
     all_results = []
 
@@ -598,6 +602,9 @@ def compare_strategies(seeds, strategies):
 
             strategy_results.append(result)
             all_results.append(result)
+
+            # Save after every seed because the full run takes a long time.
+            save_plot_data(all_results)
 
         best_values = []
         diversity_values = []
@@ -620,17 +627,19 @@ def compare_strategies(seeds, strategies):
             key=lambda result: result["best_fitness"],
         )
 
-        save_trajectory_plot(
-            best_result["best_individual"],
-            f"{strategy}_best_seed_{best_result['seed']}_c",  #I'm going to add a suffix for every running 
-        )
+        if save_videos:
+            save_trajectory_plot(
+                best_result["best_individual"],
+                f"{strategy}_best_seed_{best_result['seed']}_c",
+            )
 
-        save_video(
-            best_result["best_individual"],
-            f"{strategy}_best_seed_{best_result['seed']}_c",
-        )
+            save_video(
+                best_result["best_individual"],
+                f"{strategy}_best_seed_{best_result['seed']}_c",
+            )
 
-        save_fitness_plot(all_results)
+    save_combined_fitness_plot(all_results)
+    save_plot_data(all_results)
 
     return all_results
 
@@ -639,13 +648,15 @@ def compare_strategies(seeds, strategies):
 # Command-line arguments
 # ------------------------------------------------------------
 
+#Read optional seed and strategy from the terminal.
 def read_arguments():
-    """Read optional seed and strategy from the terminal."""
-
+    
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--strategy", type=str, default=None)
+    parser.add_argument("--plot-only", action="store_true")
+    parser.add_argument("--save-videos", action="store_true")
 
     return parser.parse_args()
 
@@ -653,18 +664,19 @@ def read_arguments():
 if __name__ == "__main__":
     args = read_arguments()
 
-    if args.seed is None:
-        seeds = SEEDS
+    if args.plot_only:
+        results = load_plot_data()
+        save_combined_fitness_plot(results)
+
     else:
-        seeds = [args.seed]
+        if args.seed is None:
+            seeds = SEEDS
+        else:
+            seeds = [args.seed]
 
-    if args.strategy is None:
-        strategies = STRATEGIES
-    else:
-        strategies = [args.strategy]
+        if args.strategy is None:
+            strategies = STRATEGIES
+        else:
+            strategies = [args.strategy]
 
-    compare_strategies(seeds, strategies)
-
-
-if __name__ == "__main__":
-    compare_strategies(seeds, strategies)
+        compare_strategies(seeds, strategies, save_videos=args.save_videos)
