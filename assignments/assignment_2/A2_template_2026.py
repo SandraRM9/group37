@@ -40,6 +40,7 @@ from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.body_phenotypes.robogen_lite.prebuilt_robots.john_set import iguana
 # from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 from ariel.ec import set_seed
+#from ariel.simulation.environments import SimpleFlatWorld  #this is one of the worlds we can use
 from ariel.simulation.environments import SimpleFlatWorld  #this is one of the worlds we can use
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.runners import simple_runner
@@ -66,9 +67,10 @@ DATA = CWD / "__data__" / SCRIPT_NAME
 DATA.mkdir(parents=True, exist_ok=True)
 
 # --- EXPERIMENT CONSTANTS --- #
+
 SPAWN_POS: list[float] = [0.0, 0.0, 0.1]  # where the robot starts
 TARGET_POSITION: list[float] = [2.0, 0.0, 0.1]  # where it should end up
-SIM_DURATION: float = 15.0  # seconds of simulated time per evaluation
+SIM_DURATION: float = 30 #Before they will be 16  # seconds of simulated time per evaluation
 MODE: ViewerTypes = "launcher"  # see run_experiment() for the options
 
 
