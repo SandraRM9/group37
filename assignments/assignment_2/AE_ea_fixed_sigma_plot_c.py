@@ -114,11 +114,7 @@ def evaluate_individual(individual, model, input_size, output_size):
    
     data = make_data(model)
 
-    weights = genotype_to_weights(
-        individual.genotype,
-        input_size,
-        output_size,
-    )
+    weights = genotype_to_weights(individual.genotype,input_size,output_size)
 
     def control_callback(m, d):
         actions = base.nn_controller(m, d, weights)
@@ -190,7 +186,7 @@ def gaussian_mutation(genotype):
     noise = np.random.normal(0, MUTATION_SIGMA, genotype.shape)
 
     genotype = genotype + mutation_mask * noise
-    genotype = np.clip(genotype, -5.0, 5.0)
+    genotype = np.clip(genotype, -5.0, 5.0) #To avoid the the weights becoming too large and causing instability in the simulation.
 
     return genotype.tolist()
 
@@ -233,7 +229,6 @@ def survivor_selection(parents, offspring, strategy):
 
     elif strategy == "mu_comma_lambda":
         candidates = list(offspring)
-
     else:
         raise ValueError("Unknown strategy")
 
@@ -652,7 +647,7 @@ def compare_strategies(seeds, strategies, save_videos=False):
 def read_arguments():
     
     parser = argparse.ArgumentParser()
-
+    
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--strategy", type=str, default=None)
     parser.add_argument("--plot-only", action="store_true")
