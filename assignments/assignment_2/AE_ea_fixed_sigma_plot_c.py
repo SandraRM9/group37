@@ -19,8 +19,8 @@ from ariel.utils.video_recorder import VideoRecorder
 # EA parameters
 # ------------------------------------------------------------
 
-POPULATION_SIZE = 30
-OFFSPRING_SIZE = 40
+POPULATION_SIZE = 40
+OFFSPRING_SIZE = 50
 
 TOURNAMENT_SIZE = 3  # Number of individuals competing in tournament selection.
 
@@ -28,7 +28,7 @@ CROSSOVER_RATE = 0.5
 MUTATION_RATE = 0.10
 MUTATION_SIGMA = 0.10
 
-MAX_GENERATIONS = 100  # Maximum number of generations.
+MAX_GENERATIONS = 120  # Maximum number of generations.
 # The run can stop earlier if the target is reached or if a plateau is detected.
 PLATEAU_PATIENCE = 20
 PLATEAU_MIN_IMPROVEMENT = 0.001
