@@ -1,4 +1,5 @@
 import argparse
+import os
 import json
 import random
 
@@ -22,7 +23,7 @@ from ariel.utils.video_recorder import VideoRecorder
 POPULATION_SIZE = 40
 OFFSPRING_SIZE = 50
 
-TOURNAMENT_SIZE = 3  # Number of individuals competing in tournament selection.
+TOURNAMENT_SIZE = 3  # Selective pressure --> Number of individuals competing in tournament selection.
 
 CROSSOVER_RATE = 0.5
 MUTATION_RATE = 0.10
@@ -35,9 +36,11 @@ PLATEAU_MIN_IMPROVEMENT = 0.001
 
 TARGET_THRESHOLD = 0.02  # Stop when the best fitness reaches this value.
 
-SEEDS = [0, 1, 2, 3, 4]
-STRATEGIES = ["mu_plus_lambda", "mu_comma_lambda"]
+#SEEDS = [0, 1, 2, 3, 4]
+#STRATEGIES = ["mu_plus_lambda", "mu_comma_lambda"]
 
+SEEDS = [3, 4]
+STRATEGIES = ["mu_comma_lambda"]
 
 # ------------------------------------------------------------
 # Simulation and genotype
@@ -550,27 +553,56 @@ def save_combined_fitness_plot(results):
 # ------------------------------------------------------------
 # Save and load plot data
 # ------------------------------------------------------------
-
-#Save only the information needed to redraw the fitness plot.
 def save_plot_data(results, filename="plot_results.json"):
-
     plot_data = []
 
+    if os.path.exists(filename):
+        with open(filename, "r") as file:
+            plot_data = json.load(file)
+
     for result in results:
-        plot_data.append(
-            {
-                "strategy": result["strategy"],
-                "seed": result["seed"],
-                "generations_run": result["generations_run"],
-                "best_history": result["best_history"],
-                "best_fitness": result["best_fitness"],
-                "final_diversity": result["final_diversity"],
-                "stopping_reason": result["stopping_reason"],
-            }
-        )
+        new_result = {
+            "strategy": result["strategy"],
+            "seed": result["seed"],
+            "generations_run": result["generations_run"],
+            "best_history": result["best_history"],
+            "best_fitness": result["best_fitness"],
+            "final_diversity": result["final_diversity"],
+            "stopping_reason": result["stopping_reason"],
+        }
+
+        already_saved = False
+
+        for old_result in plot_data:
+            if old_result["strategy"] == new_result["strategy"] and old_result["seed"] == new_result["seed"]:
+                already_saved = True
+
+        if not already_saved:
+            plot_data.append(new_result)
 
     with open(filename, "w") as file:
-        json.dump(plot_data, file)
+        json.dump(plot_data, file, indent=4)
+
+#Save only the information needed to redraw the fitness plot.
+# def save_plot_data(results, filename="plot_results.json"):
+
+#     plot_data = []
+
+#     for result in results:
+#         plot_data.append(
+#             {
+#                 "strategy": result["strategy"],
+#                 "seed": result["seed"],
+#                 "generations_run": result["generations_run"],
+#                 "best_history": result["best_history"],
+#                 "best_fitness": result["best_fitness"],
+#                 "final_diversity": result["final_diversity"],
+#                 "stopping_reason": result["stopping_reason"],
+#             }
+#         )
+
+#     with open(filename, "w") as file:
+#         json.dump(plot_data, file)
 
 #In order to save time, we can load the previous results and plot them without running the simulations again.
 def load_plot_data(filename="plot_results.json"):
@@ -647,7 +679,7 @@ def compare_strategies(seeds, strategies, save_videos=False):
 def read_arguments():
     
     parser = argparse.ArgumentParser()
-    
+
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--strategy", type=str, default=None)
     parser.add_argument("--plot-only", action="store_true")
