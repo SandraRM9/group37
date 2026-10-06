@@ -1,11 +1,14 @@
+# code with baseline
+
 import argparse
-import os
 import json
 import random
 
 import matplotlib.pyplot as plt
 import mujoco as mj
 import numpy as np
+
+import concurrent.futures
 
 import A2_template_2026 as base
 
@@ -20,16 +23,16 @@ from ariel.utils.video_recorder import VideoRecorder
 # EA parameters
 # ------------------------------------------------------------
 
-POPULATION_SIZE = 40
-OFFSPRING_SIZE = 50
+POPULATION_SIZE = 50
+OFFSPRING_SIZE = 100
 
-TOURNAMENT_SIZE = 3  # Selective pressure --> Number of individuals competing in tournament selection.
+TOURNAMENT_SIZE = 3  # Number of individuals competing in tournament selection.
 
 CROSSOVER_RATE = 0.5
 MUTATION_RATE = 0.10
 MUTATION_SIGMA = 0.10
 
-MAX_GENERATIONS = 120  # Maximum number of generations.
+MAX_GENERATIONS = 150  # Maximum number of generations.
 # The run can stop earlier if the target is reached or if a plateau is detected.
 PLATEAU_PATIENCE = 20
 PLATEAU_MIN_IMPROVEMENT = 0.001
@@ -37,10 +40,7 @@ PLATEAU_MIN_IMPROVEMENT = 0.001
 TARGET_THRESHOLD = 0.02  # Stop when the best fitness reaches this value.
 
 SEEDS = [0, 1, 2, 3, 4]
-STRATEGIES = ["mu_plus_lambda", "mu_comma_lambda"]
-
-# SEEDS = [3, 4]
-# STRATEGIES = ["mu_comma_lambda"]
+STRATEGIES = ["mu_plus_lambda", "mu_comma_lambda", "random_search"]
 
 # ------------------------------------------------------------
 # Simulation and genotype
@@ -103,6 +103,14 @@ def genotype_to_weights(genotype, input_size, output_size):
 # ------------------------------------------------------------
 # Create and evaluate individuals
 # ------------------------------------------------------------
+_GLOBAL_CACHED_MODEL = None
+
+def get_cached_model():
+    """Ensure each CPU worker compiles the MuJoCo model exactly once."""
+    global _GLOBAL_CACHED_MODEL
+    if _GLOBAL_CACHED_MODEL is None:
+        _GLOBAL_CACHED_MODEL = make_model()
+    return _GLOBAL_CACHED_MODEL
 
 def make_individual(genotype_length):
 
@@ -113,11 +121,11 @@ def make_individual(genotype_length):
 
     return individual
 
-def evaluate_individual(individual, model, input_size, output_size):
-   
+def evaluate_individual(genotype, input_size, output_size):
+    # Use the cached model instead of compiling a new one!
+    model = get_cached_model()
     data = make_data(model)
-
-    weights = genotype_to_weights(individual.genotype,input_size,output_size)
+    weights = genotype_to_weights(genotype, input_size, output_size)
 
     def control_callback(m, d):
         actions = base.nn_controller(m, d, weights)
@@ -126,27 +134,49 @@ def evaluate_individual(individual, model, input_size, output_size):
     initial_position = base.get_core_position(data)
 
     mj.set_mjcb_control(control_callback)
-    simple_runner(model, data, duration=base.SIM_DURATION)
+    
+    # Calculate total steps instead of using simple_runner
+    steps = int(base.SIM_DURATION / model.opt.timestep)
+    fell_over = False
+    
+    for _ in range(steps):
+        mj.mj_step(model, data)
+        
+        # Check Z-axis height (index 2). 
+        # If the iguana drops below 0.04 meters, it has fallen over.
+        if data.qpos[2] < 0.04: 
+            fell_over = True
+            break
+            
     mj.set_mjcb_control(None)
 
     final_position = base.get_core_position(data)
-
     fitness = base.fitness_function(initial_position, final_position)
-
-    individual.fitness = fitness
-    individual.requires_eval = False
-
+        
     return fitness
 
-#Evaluate all individuals that still need evaluation.
-def evaluate_population(population, model, input_size, output_size):
+def evaluate_population(population, model, input_size, output_size, executor):
+    individuals_to_eval = [ind for ind in population if ind.requires_eval]
     
-    for individual in population:
-        if individual.requires_eval:
-            evaluate_individual(individual, model,input_size,output_size) 
-    
-    return population
+    if not individuals_to_eval:
+        return population
 
+    futures = []
+    for individual in individuals_to_eval:
+        futures.append(
+            executor.submit(
+                evaluate_individual, 
+                individual.genotype, 
+                input_size, 
+                output_size
+            )
+        )
+    
+    for individual, future in zip(individuals_to_eval, futures):
+        individual.fitness = future.result()
+        individual.requires_eval = False
+            
+    return population
 
 # ------------------------------------------------------------
 # Parent selection and variation
@@ -229,8 +259,7 @@ def survivor_selection(parents, offspring, strategy):
 
     if strategy == "mu_plus_lambda":
         candidates = list(parents) + list(offspring)
-
-    elif strategy == "mu_comma_lambda":
+    elif strategy == "mu_comma_lambda" or strategy == "random_search":
         candidates = list(offspring)
     else:
         raise ValueError("Unknown strategy")
@@ -238,7 +267,6 @@ def survivor_selection(parents, offspring, strategy):
     candidates.sort(key=lambda individual: individual.fitness)
 
     survivors = Population([])
-
     for individual in candidates[:POPULATION_SIZE]:
         survivors.append(individual)
 
@@ -282,72 +310,80 @@ def population_diversity(population):
 # ------------------------------------------------------------
 
 def run_ea(strategy, seed):
-
     random.seed(seed)
     np.random.seed(seed)
     set_seed(seed)
 
     model = make_model()
-
     input_size, output_size = get_network_sizes(model)
     genotype_length = get_genotype_length(input_size, output_size)
 
     parents = Population([])
-
     for _ in range(POPULATION_SIZE):
         individual = make_individual(genotype_length)
         parents.append(individual)
 
-    parents = evaluate_population(parents,model,input_size,output_size)
-
     best_history = []
     mean_history = []
     diversity_history = []
-
     best_so_far = float("inf")
     best_individual = None
-
     stopping_reason = "max_generations"
 
-    for generation in range(MAX_GENERATIONS):
-        offspring = make_offspring(parents)
+    # 1. Open the multiprocessing pool ONCE for the entire EA run
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        
+        # 2. Pass the executor to the initial evaluation
+        parents = evaluate_population(parents, model, input_size, output_size, executor)
 
-        offspring = evaluate_population(offspring,model,input_size,output_size)
-        parents = survivor_selection(parents, offspring, strategy)
+        for generation in range(MAX_GENERATIONS):
+            # IF random search, just create new random individuals
+            if strategy == "random_search":
+                offspring = Population([])
+                for _ in range(OFFSPRING_SIZE):
+                    offspring.append(make_individual(genotype_length))
+            # OTHERWISE, breed the parents using EA operators
+            else:
+                offspring = make_offspring(parents)
 
-        fitness_values = []
+            # 3. Pass the executor to the offspring evaluation
+            offspring = evaluate_population(offspring, model, input_size, output_size, executor)
+            parents = survivor_selection(parents, offspring, strategy)
 
-        for individual in parents:
-            fitness_values.append(individual.fitness)
+            fitness_values = []
 
-            if individual.fitness < best_so_far:
-                best_so_far = individual.fitness
-                best_individual = individual
+            for individual in parents:
+                fitness_values.append(individual.fitness)
 
-        best_now = min(fitness_values)
-        mean_fitness = float(np.mean(fitness_values))
-        diversity = population_diversity(parents)
+                if individual.fitness < best_so_far:
+                    best_so_far = individual.fitness
+                    best_individual = individual
 
-        best_history.append(best_so_far)
-        mean_history.append(mean_fitness)
-        diversity_history.append(diversity)
+            best_now = min(fitness_values)
+            mean_fitness = float(np.mean(fitness_values))
+            diversity = population_diversity(parents)
 
-        console.log(
-            f"{strategy} | seed {seed} | gen {generation + 1} | "
-            f"best now {best_now:.4f} | "
-            f"best so far {best_so_far:.4f} | "
-            f"mean {mean_fitness:.4f} | "
-            f"diversity {diversity:.4f}"
-        )
+            best_history.append(best_so_far)
+            mean_history.append(mean_fitness)
+            diversity_history.append(diversity)
 
-        if best_so_far <= TARGET_THRESHOLD:
-            stopping_reason = "target_reached"
-            break
+            console.log(
+                f"{strategy} | seed {seed} | gen {generation + 1} | "
+                f"best now {best_now:.4f} | "
+                f"best so far {best_so_far:.4f} | "
+                f"mean {mean_fitness:.4f} | "
+                f"diversity {diversity:.4f}"
+            )
 
-        if has_plateau(best_history):
-            stopping_reason = "plateau"
-            break
+            if best_so_far <= TARGET_THRESHOLD:
+                stopping_reason = "target_reached"
+                break
 
+            if has_plateau(best_history):
+                stopping_reason = "plateau"
+                break
+
+    # Return statement sits outside the 'with' block so it executes after the pool closes
     return {
         "strategy": strategy,
         "seed": seed,
@@ -360,7 +396,6 @@ def run_ea(strategy, seed):
         "diversity_history": diversity_history,
         "best_individual": best_individual,
     }
-
 
 # ------------------------------------------------------------
 # Trajectory and video
@@ -482,6 +517,7 @@ def save_combined_fitness_plot(results):
     colors = {
         "mu_plus_lambda": "tab:blue",
         "mu_comma_lambda": "tab:orange",
+        "random_search": "tab:green", 
     }
 
     for strategy in STRATEGIES:
@@ -553,37 +589,8 @@ def save_combined_fitness_plot(results):
 # ------------------------------------------------------------
 # Save and load plot data
 # ------------------------------------------------------------
-# def save_plot_data(results, filename="plot_results.json"):
-#     plot_data = []
 
-#     if os.path.exists(filename):
-#         with open(filename, "r") as file:
-#             plot_data = json.load(file)
-
-#     for result in results:
-#         new_result = {
-#             "strategy": result["strategy"],
-#             "seed": result["seed"],
-#             "generations_run": result["generations_run"],
-#             "best_history": result["best_history"],
-#             "best_fitness": result["best_fitness"],
-#             "final_diversity": result["final_diversity"],
-#             "stopping_reason": result["stopping_reason"],
-#         }
-
-#         already_saved = False
-
-#         for old_result in plot_data:
-#             if old_result["strategy"] == new_result["strategy"] and old_result["seed"] == new_result["seed"]:
-#                 already_saved = True
-
-#         if not already_saved:
-#             plot_data.append(new_result)
-
-#     with open(filename, "w") as file:
-#         json.dump(plot_data, file, indent=4)
-
-# Save only the information needed to redraw the fitness plot.
+#Save only the information needed to redraw the fitness plot.
 def save_plot_data(results, filename="plot_results.json"):
 
     plot_data = []
@@ -679,7 +686,7 @@ def compare_strategies(seeds, strategies, save_videos=False):
 def read_arguments():
     
     parser = argparse.ArgumentParser()
-
+    
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--strategy", type=str, default=None)
     parser.add_argument("--plot-only", action="store_true")
