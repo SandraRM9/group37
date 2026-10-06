@@ -4,7 +4,7 @@
 #Doing a 2-sided Wilcoxon test
 
 import json
-
+import numpy as np
 from scipy.stats import wilcoxon
 
 
@@ -17,36 +17,52 @@ def load_results():
         return json.load(file)
 
 def wilcoxon_test():
-
+    mu_plus_lambda_fitness = []
+    mu_comma_lambda_fitness = []
+    random_search_fitness = []
     results = load_results()
+    
+    for run in results:
+        if run.get("strategy") == "mu_plus_lambda":
+            mu_plus_lambda_fitness.append(run.get("best_fitness"))
+        elif run.get("strategy") == "mu_comma_lambda":
+            mu_comma_lambda_fitness.append(run.get("best_fitness"))
+        elif run.get("strategy") == "random_search":
+            random_search_fitness.append(run.get("best_fitness"))
 
-    for strategy in results.keys("strategy"):
+    print(
+        "Mean mu_plus_lambda:", np.mean(mu_plus_lambda_fitness),
+        "\nSD mu_plus_lambda:", np.std(mu_plus_lambda_fitness),
+        "\nMean mu_comma_lambda:", np.mean(mu_comma_lambda_fitness),
+        "\nSD mu_comma_lambda:", np.std(mu_comma_lambda_fitness),
+        "\nMean random:", np.mean(random_search_fitness),
+        "\nSD random:", np.std(random_search_fitness),
+    )
+
+    result_wilcoxon_plus_comma = wilcoxon(mu_plus_lambda_fitness, mu_comma_lambda_fitness)
+    result_wilcoxon_plus_random = wilcoxon(mu_plus_lambda_fitness, random_search_fitness)
+    result_wilcoxon_comma_random = wilcoxon(mu_comma_lambda_fitness, random_search_fitness)
+
+    print(
+        "Result wilcoxon plus_comma:", result_wilcoxon_plus_comma,
+        "\nResult wilcoxon plus_random:", result_wilcoxon_plus_random,
+        "\nResult wilcoxon comma_random", result_wilcoxon_comma_random
+    )
+
+    return(result_wilcoxon_plus_comma, result_wilcoxon_plus_random, result_wilcoxon_comma_random)
+
+    
         
-        for seed in results.keys("seed"):
-            best_fitness = results.get("best_fitness")
 
-    return(best_fitness)
+
 
 
 result_wilcoxon = wilcoxon_test()
 
+print(result_wilcoxon)
 
 
 
-# #final best fitness point, subtree, random
-#     point_final_fitness = results["point"]["fitness"][:,-1]
-#     subtree_final_fitness = results["subtree"]["fitness"][:,-1]
-#     random_final_fitness = results["random"]["fitness"][:,-1]
-
-#     #mean and sd for point, subtree, random
-#     print(
-#         "Mean point:", np.mean(point_final_fitness),
-#         "\nSD point:", np.std(point_final_fitness),
-#         "\nMean subtree:", np.mean(subtree_final_fitness),
-#         "\nSD subtree:", np.std(subtree_final_fitness),
-#         "\nMean random:", np.mean(random_final_fitness),
-#         "\nSD random:", np.std(random_final_fitness),
-#     )
 
 #     #Wilcoxon test one-sided
 #     result_wilcoxon_point_sub = wilcoxon(point_final_fitness, subtree_final_fitness, alternative="less") #point vs subtree
@@ -65,5 +81,5 @@ result_wilcoxon = wilcoxon_test()
 
 
 
-if __name__ == "__main__":
-    plot_seed_trajectories_by_strategy()
+# if __name__ == "__main__":
+#     plot_seed_trajectories_by_strategy()
