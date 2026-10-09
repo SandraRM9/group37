@@ -125,6 +125,6 @@ def save_combined_fitness_plot(results):
 
 if __name__ == "__main__":
 
-    results = load_plot_data("plot_results_b.json")
+    results = load_plot_data("plot_results.json")
 
     save_combined_fitness_plot(results)

@@ -9,7 +9,7 @@ from scipy.stats import wilcoxon
 
 
 #import stuff json
-JSON_FILE = "plot_results_c.json"
+JSON_FILE = "plot_results.json"
 
 
 def load_results():
