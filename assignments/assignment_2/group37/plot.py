@@ -107,7 +107,7 @@ def save_combined_fitness_plot(results):
         )
 
     plt.xlabel("generation")
-    plt.ylabel("best fitness so far")
+    plt.ylabel("mean best fitness")
     plt.title("Comparison of survivor selection strategies")
     plt.legend()
     plt.grid(True)
