@@ -1,6 +1,3 @@
-#NOT DONE YET!!!
-
-
 #Doing a 2-sided Wilcoxon test
 
 import json
